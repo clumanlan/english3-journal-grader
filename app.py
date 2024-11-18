@@ -7,7 +7,6 @@ from io import StringIO, BytesIO
 from PIL import Image
 import pandas as pd
 from datetime import datetime
-
 from haystack.components.generators import OpenAIGenerator
 
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
@@ -27,11 +26,11 @@ def get_student_names():
     
     s3 = session.client('s3')
 
-    response = s3.get_object(Bucket='aplit-journal-grader', Key='english3_student.csv')
+    response = s3.get_object(Bucket='aplit-journal-grader', Key='english3-students.csv')
     csv_content = response['Body'].read().decode('utf-8')
     student_df = pd.read_csv(StringIO(csv_content))
     
-    return student_df['Name']
+    return student_df['Student Name']
 
 @st.cache_data
 def get_msfrate_picture():
@@ -168,7 +167,6 @@ def evidence_two_critique(main_claim, evidence_one, evidence_two):
         Provide helpful and encouraging feedback that is tailored to a student at 7th grade reading level.
         Please provide it in the format: 
             Score: 
-            Critique: 
             Suggestions:
         """
   
@@ -266,83 +264,108 @@ with col1:
 with col2:
     st.subheader("Frate Train Collaborative Journal Response Grader")
 
-# student_names = get_student_names() , *student_names
-student_name = st.selectbox('Please start typing to select name...', ['', 'test'],   key='student_name')
+student_names = get_student_names()
 
-st.divider()
+student_name = st.selectbox('Please start typing to select name...', ['', 'test',  *student_names],   key='student_name')
 
-prompt = """The Handmaid's Tale focuses on systemic political and social issues. 
-            Write a paragraph about how Atwood uses authorial choices to explore a specific issue 
-            and explain how the issue contributes to the meaning of the work as a whole."""
+if student_name:
+    f'Welcome {student_name.split(",")[1]}, Ms. Frate appreciates you being a scholar :)'
+    st.divider()
 
-st.write('Reminder this is your prompt:')
-st.write(prompt)
+    prompt = """The Handmaid's Tale focuses on systemic political and social issues. 
+                Write a paragraph about how Atwood uses authorial choices to explore a specific issue 
+                and explain how the issue contributes to the meaning of the work as a whole."""
 
-st.divider()
+    st.write("**Here's your prompt so you don't have to go searching:**")
+    st.write(prompt)
 
-for section in sections:
-    if st.session_state[f'{section}_submitted']:
-        st.write(f"### {section.replace('_', ' ').title()}")
-        st.text_area(
-            "Content:",
-            value=st.session_state[f'{section}_content'],
-            key=f'display_{section}',
-            disabled=True
+    st.divider()
+
+    st.write("Enter each section as it pops up, click submit when you're done -> get feedback -> go to next section!")
+
+    for section in sections:
+        if st.session_state[f'{section}_submitted']:
+            st.write(f"### {section.replace('_', ' ').title()}")
+            st.text_area(
+                "Content:",
+                value=st.session_state[f'{section}_content'],
+                key=f'display_{section}',
+                disabled=True
+            )
+            if st.session_state[f'{section}_feedback']:
+                st.write("Feedback:", st.session_state[f'{section}_feedback'])
+            st.divider()
+
+
+    current_section = None
+    for section in sections:
+        if not st.session_state[f'{section}_submitted']:
+            current_section = section
+            break
+
+    # Show current section if there is one
+    if current_section:
+        st.write(f"### {current_section.replace('_', ' ').title()}")
+        current_input = st.text_area(
+            "Your response:",
+            key=f'input_{current_section}'
         )
-        if st.session_state[f'{section}_feedback']:
-            st.write("Feedback:", st.session_state[f'{section}_feedback'])
-        st.divider()
+
+        if st.button(f"Submit {current_section.replace('_', ' ').title()}") :
+            # Store the response
+            st.session_state[f'{current_section}_content'] = current_input
+
+            if current_section == 'main_claim':
+                feedback = main_claim_critique(prompt, current_input)
+
+            elif current_section == 'evidence_one':
+                feedback = evidence_one_critique(st.session_state['main_claim_content'], 
+                                                current_input)
+
+            elif current_section == 'reasoning_one':
+                feedback = reasoning_critique(st.session_state['main_claim_content'],  
+                                            st.session_state['evidence_one_content'], 
+                                            current_input)
+
+            elif current_section == 'evidence_two':
+                feedback = evidence_two_critique(st.session_state['main_claim_content'],  
+                                            st.session_state['evidence_one_content'], 
+                                            current_input)
+
+            elif current_section == 'reasoning_two':
+                feedback = reasoning_critique(
+                                            st.session_state['main_claim_content'],  
+                                            st.session_state['evidence_two_content'],  
+                                            current_input)
+
+            else: 
+                feedback = synthesis_critique(prompt, 
+                                            st.session_state['main_claim_content'],  
+                                            st.session_state['evidence_one_content'], 
+                                            st.session_state['reasoning_one_content'], 
+                                            st.session_state['evidence_two_content'], 
+                                            st.session_state['reasoning_two_content'], 
+                                            current_input)
+
+            st.session_state[f'{current_section}_feedback'] = feedback
+            
+            st.session_state[f'{current_section}_submitted'] = True
+            
+            st.rerun()
 
 
-# Find the current (first unsubmitted) section
-current_section = None
-for section in sections:
-    if not st.session_state[f'{section}_submitted']:
-        current_section = section
-        break
-
-# Show current section if there is one
-if current_section:
-    st.write(f"### {current_section.replace('_', ' ').title()}")
-    current_input = st.text_area(
-        "Your response:",
-        key=f'input_{current_section}'
-    )
-    
-    if st.button(f"Submit {current_section.replace('_', ' ').title()}") :
-        # Store the response
-        st.session_state[f'{current_section}_content'] = current_input
-
-        if current_section == 'main_claim':
-            feedback = main_claim_critique(prompt, current_input)
-        elif current_section == 'evidence_one':
-            feedback = evidence_one_critique(st.session_state['main_claim_content'], 
-                                             current_input)
-        elif current_section == 'reasoning_one':
-            feedback = reasoning_critique(st.session_state['main_claim_content'],  
-                                          st.session_state['evidence_one_content'], 
-                                          current_input)
-        elif current_section == 'evidence_two':
-            feedback = evidence_two_critique(st.session_state['main_claim_content'],  
-                                          st.session_state['evidence_one_content'], 
-                                          current_input)
-        elif current_section == 'reasoning_two':
-            feedback = reasoning_critique(
-                                          st.session_state['main_claim_content'],  
-                                          st.session_state['evidence_two_content'],  
-                                          current_input)
-        else: 
-            feedback = synthesis_critique(prompt, 
-                                          st.session_state['main_claim_content'],  
-                                          st.session_state['evidence_one_content'], 
-                                          st.session_state['reasoning_one_content'], 
-                                          st.session_state['evidence_two_content'], 
-                                          st.session_state['reasoning_two_content'], 
-                                          current_input)
-
-
-        st.session_state[f'{current_section}_feedback'] = feedback
-        
-        st.session_state[f'{current_section}_submitted'] = True
-        
-        st.rerun()
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            if st.button("Start Over from Beginning", type="primary", help="Completely reset your submission"):
+                # Reset all session state variables
+                keys_to_reset = [
+                    'main_claim_submitted', 'main_claim_content', 'main_claim_feedback',
+                    'evidence_one_submitted', 'evidence_one_content', 'evidence_one_feedback',
+                    'reasoning_one_submitted', 'reasoning_one_content', 'reasoning_one_feedback',
+                    'evidence_two_submitted', 'evidence_two_content', 'evidence_two_feedback',
+                    'reasoning_two_submitted', 'reasoning_two_content', 'reasoning_two_feedback',
+                    'synthesis_submitted', 'synthesis_content', 'synthesis_feedback'
+                ]
+                for key in keys_to_reset:
+                    st.session_state[key] = None
+                st.rerun()
